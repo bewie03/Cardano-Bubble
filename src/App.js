@@ -33,7 +33,11 @@ function App() {
         console.log('Fetching data from server...');
         const response = await axios.get('/api/prices');
         console.log('Received data:', response.data);
-        setData(response.data);
+        if (response.data.tokens) {
+          setData(response.data.tokens);
+        } else {
+          setError('Invalid data format received');
+        }
       } catch (err) {
         console.error('Error fetching data:', err);
         setError(err.message);

@@ -25,8 +25,10 @@ module.exports = async (req, res) => {
   res.setHeader('Access-Control-Allow-Methods', 'GET');
   
   try {
-    const tokenData = await Promise.all(
-      TOP_TOKENS.map(async (token) => {
+    const results = [];
+    
+    for (const token of TOP_TOKENS) {
+      try {
         const url = new URL(API_URL);
         url.searchParams.append('unit', token.unit);
         
@@ -38,24 +40,31 @@ module.exports = async (req, res) => {
         });
 
         if (!response.ok) {
-          throw new Error(`API error for ${token.name}: ${response.status}`);
+          console.error(`API error for ${token.name}:`, await response.text());
+          continue;
         }
 
         const data = await response.json();
-        return {
+        results.push({
           id: token.unit,
           name: token.name,
-          changes: data
-        };
-      })
-    );
+          changes: data || {}
+        });
+      } catch (tokenError) {
+        console.error(`Error fetching ${token.name}:`, tokenError);
+        // Continue with other tokens even if one fails
+        continue;
+      }
+    }
 
-    res.json(tokenData);
+    // Always return an array, even if empty
+    res.json({ tokens: results });
   } catch (error) {
     console.error('API Error:', error);
     res.status(500).json({ 
       error: 'Failed to fetch price data',
-      message: error.message
+      message: error.message,
+      tokens: [] // Always include tokens array
     });
   }
 };
