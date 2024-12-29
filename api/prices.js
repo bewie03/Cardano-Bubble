@@ -76,6 +76,7 @@ async function updateCacheInBackground() {
 
     const results = [];
     const errors = [];
+    let successCount = 0;
     
     // Fetch data for each token with delay between requests
     for (const token of TOP_TOKENS) {
@@ -104,6 +105,7 @@ async function updateCacheInBackground() {
           unit: token.unit,
           changes: data.changes
         });
+        successCount++;
 
         // Add delay between requests to avoid rate limits
         if (TOP_TOKENS.indexOf(token) < TOP_TOKENS.length - 1) {
@@ -114,31 +116,52 @@ async function updateCacheInBackground() {
         console.error('Error fetching token data:', token.name, error);
         
         if (error.message === 'RATE_LIMIT_EXCEEDED') {
-          await delay(2000);
+          // On rate limit, pause longer and retry this token
+          console.log('Rate limit hit, pausing for 5 seconds...');
+          await delay(5000);
+          // Decrement the loop to retry this token
+          const currentIndex = TOP_TOKENS.indexOf(token);
+          if (currentIndex > 0) {
+            token = TOP_TOKENS[currentIndex - 1];
+          }
+          continue;
         }
         
         errors.push({ token: token.name, error: error.message });
       }
     }
 
-    // Only update cache if we got some results
-    if (results.length > 0) {
-      cache = {
+    // Update cache if we got at least one result
+    if (successCount > 0) {
+      const newCache = {
         data: {
           tokens: results,
           errors: errors.length > 0 ? errors : undefined,
-          lastUpdated: new Date().toISOString()
+          lastUpdated: new Date().toISOString(),
+          successCount,
+          totalTokens: TOP_TOKENS.length
         },
         timestamp: Date.now(),
         isUpdating: false
       };
-      console.log('Cache updated successfully');
+
+      // Only update if we got more results than the current cache
+      if (!cache.data || successCount >= (cache.data.tokens?.length || 0)) {
+        cache = newCache;
+        console.log(`Cache updated successfully with ${successCount}/${TOP_TOKENS.length} tokens`);
+      } else {
+        console.log(`Keeping existing cache with ${cache.data.tokens.length} tokens instead of new data with ${successCount} tokens`);
+      }
     } else {
       console.error('Cache update failed - no valid results');
-      cache.isUpdating = false;
+      // Keep the old cache if it exists
+      if (cache.data) {
+        console.log('Keeping existing cache data');
+      }
     }
   } catch (error) {
     console.error('Cache update failed:', error);
+  } finally {
     cache.isUpdating = false;
   }
 }
@@ -154,20 +177,34 @@ module.exports = async (req, res) => {
       throw new Error('API_KEY_MISSING');
     }
 
-    // If cache is expired, trigger background update but still return old cache
-    if (!isCacheValid() && !cache.isUpdating) {
-      console.log('Cache expired, triggering background update');
-      updateCacheInBackground().catch(console.error);
-    }
-
-    // Always return cache if it exists, even if expired
+    // If cache exists, return it immediately
     if (cache.data) {
+      // If cache is expired and not currently updating, trigger background update
+      if (!isCacheValid() && !cache.isUpdating) {
+        console.log('Cache expired, triggering background update');
+        updateCacheInBackground().catch(console.error);
+      }
       console.log('Returning cached data from:', new Date(cache.timestamp).toISOString());
       return res.json(cache.data);
     }
 
-    // If no cache exists yet, wait for initial fetch
-    console.log('No cache exists, waiting for initial fetch');
+    // No cache exists yet - do initial fetch
+    console.log('No cache exists, performing initial fetch');
+    
+    // If already fetching, wait up to 10 seconds for it to complete
+    if (cache.isUpdating) {
+      console.log('Initial fetch already in progress, waiting...');
+      for (let i = 0; i < 10; i++) {
+        await delay(1000);
+        if (cache.data) {
+          console.log('Cache populated while waiting');
+          return res.json(cache.data);
+        }
+      }
+      throw new Error('Timeout waiting for initial data');
+    }
+
+    // Start initial fetch
     await updateCacheInBackground();
 
     if (!cache.data) {
@@ -180,7 +217,11 @@ module.exports = async (req, res) => {
     console.error('API Error:', error);
     const statusCode = getStatusCode(error.message);
     const message = getErrorMessage(error.message);
-    res.status(statusCode).json({ message, error: error.message });
+    res.status(statusCode).json({ 
+      message: message,
+      error: error.message,
+      details: 'If this error persists, please try again in a few minutes while the cache is being built.'
+    });
   }
 };
 
