@@ -17,14 +17,12 @@ const darkTheme = createTheme({
   },
 });
 
-const TIMEFRAMES = ['6h', '1d', '7d', '30d', '60d', '1y'];
-
 function App() {
   const [data, setData] = useState([]);
-  const [selectedTimeframe, setSelectedTimeframe] = useState('7d');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  
+  const [selectedTimeframe, setSelectedTimeframe] = useState('1d');
+
   useEffect(() => {
     const fetchData = async () => {
       try {
@@ -33,14 +31,27 @@ function App() {
         console.log('Fetching data from server...');
         const response = await axios.get('/api/prices');
         console.log('Received data:', response.data);
-        if (response.data.tokens) {
-          setData(response.data.tokens);
+        
+        if (response.data && Array.isArray(response.data.tokens)) {
+          if (response.data.tokens.length === 0) {
+            setError('No data available');
+          } else {
+            const validData = response.data.tokens.filter(token => 
+              token && token.changes && typeof token.changes[selectedTimeframe] === 'number'
+            );
+            if (validData.length > 0) {
+              setData(validData);
+            } else {
+              setError('No valid token data received');
+            }
+          }
         } else {
-          setError('Invalid data format received');
+          console.error('Invalid response format:', response.data);
+          setError('Invalid data format received from server');
         }
       } catch (err) {
         console.error('Error fetching data:', err);
-        setError(err.message);
+        setError(err.message || 'Failed to fetch data');
       } finally {
         setLoading(false);
       }
@@ -48,10 +59,6 @@ function App() {
 
     fetchData();
   }, []);
-
-  const handleTimeframeChange = (timeframe) => {
-    setSelectedTimeframe(timeframe);
-  };
 
   return (
     <ThemeProvider theme={darkTheme}>
@@ -88,25 +95,57 @@ function App() {
           padding: '1rem',
           borderRadius: '8px'
         }}>
-          {TIMEFRAMES.map((tf) => (
-            <button
-              key={tf}
-              onClick={() => handleTimeframeChange(tf)}
-              style={{
-                background: selectedTimeframe === tf ? '#4caf50' : '#2a2a2a',
-                color: selectedTimeframe === tf ? '#fff' : '#888',
-                border: 'none',
-                padding: '8px 24px',
-                borderRadius: '4px',
-                cursor: 'pointer',
-                transition: 'all 0.2s',
-                fontSize: '1rem',
-                fontWeight: 'bold'
-              }}
-            >
-              {tf}
-            </button>
-          ))}
+          <button
+            key="1d"
+            onClick={() => setSelectedTimeframe('1d')}
+            style={{
+              background: selectedTimeframe === '1d' ? '#4caf50' : '#2a2a2a',
+              color: selectedTimeframe === '1d' ? '#fff' : '#888',
+              border: 'none',
+              padding: '8px 24px',
+              borderRadius: '4px',
+              cursor: 'pointer',
+              transition: 'all 0.2s',
+              fontSize: '1rem',
+              fontWeight: 'bold'
+            }}
+          >
+            1d
+          </button>
+          <button
+            key="7d"
+            onClick={() => setSelectedTimeframe('7d')}
+            style={{
+              background: selectedTimeframe === '7d' ? '#4caf50' : '#2a2a2a',
+              color: selectedTimeframe === '7d' ? '#fff' : '#888',
+              border: 'none',
+              padding: '8px 24px',
+              borderRadius: '4px',
+              cursor: 'pointer',
+              transition: 'all 0.2s',
+              fontSize: '1rem',
+              fontWeight: 'bold'
+            }}
+          >
+            7d
+          </button>
+          <button
+            key="30d"
+            onClick={() => setSelectedTimeframe('30d')}
+            style={{
+              background: selectedTimeframe === '30d' ? '#4caf50' : '#2a2a2a',
+              color: selectedTimeframe === '30d' ? '#fff' : '#888',
+              border: 'none',
+              padding: '8px 24px',
+              borderRadius: '4px',
+              cursor: 'pointer',
+              transition: 'all 0.2s',
+              fontSize: '1rem',
+              fontWeight: 'bold'
+            }}
+          >
+            30d
+          </button>
         </Box>
 
         <Box sx={{ 
