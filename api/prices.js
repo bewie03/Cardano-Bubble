@@ -91,15 +91,15 @@ module.exports = async (req, res) => {
           changes: data.changes
         });
 
-        // Add significant delay between requests to avoid rate limits
-        await delay(2000); // 2 seconds between requests
+        // Add shorter delay between requests to avoid rate limits
+        await delay(1000); // 1 second between requests
         
       } catch (error) {
         console.error('Error fetching token data:', token.name, error);
         
         if (error.message === 'RATE_LIMIT_EXCEEDED') {
-          // If rate limited, add a longer delay before continuing
-          await delay(5000); // 5 seconds pause on rate limit
+          // If rate limited, add a shorter delay before continuing
+          await delay(2000); // 2 seconds pause on rate limit
         }
         
         errors.push({ token: token.name, error: error.message });
