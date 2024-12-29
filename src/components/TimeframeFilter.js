@@ -20,8 +20,9 @@ const StyledToggleButtonGroup = styled(ToggleButtonGroup)(({ theme }) => ({
 }));
 
 const timeframeOptions = [
+  { value: '1h', label: '1H' },
   { value: '4h', label: '4H' },
-  { value: '1d', label: '1D' },
+  { value: '24h', label: '24H' },
   { value: '7d', label: '7D' },
   { value: '30d', label: '30D' }
 ];
@@ -34,12 +35,12 @@ const TimeframeFilter = ({ timeframes = timeframeOptions, selected, onChange }) 
   };
 
   return (
-    <Box sx={{ mb: 4, mt: 2 }}>
+    <Box sx={{ mb: 2, display: 'flex', justifyContent: 'center' }}>
       <StyledToggleButtonGroup
         value={selected}
         exclusive
         onChange={handleChange}
-        aria-label="timeframe selection"
+        aria-label="timeframe"
       >
         {timeframes.map((timeframe) => (
           <ToggleButton
