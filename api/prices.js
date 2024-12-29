@@ -22,31 +22,31 @@ const TOP_TOKENS = [
 // Helper function to add delay between requests
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 
-// Helper function to fetch data with retries
-async function fetchWithRetry(url, options, retries = 3, delayMs = 1000) {
-  for (let i = 0; i < retries; i++) {
-    try {
-      const response = await fetch(url, options);
-      
-      // Check if response exists before accessing properties
-      if (!response) {
-        throw new Error('No response received from API');
-      }
-      
-      if (response.status === 429) { // Rate limit exceeded
-        console.log(`Rate limit hit, attempt ${i + 1}/${retries}, waiting ${delayMs}ms`);
-        await delay(delayMs);
-        continue;
-      }
-      
-      return response;
-    } catch (error) {
-      console.error(`Attempt ${i + 1} failed:`, error);
-      if (i === retries - 1) throw error;
-      await delay(delayMs);
-    }
+// Helper function to fetch with proper error handling
+async function fetchTokenData(url, options) {
+  const response = await fetch(url, options);
+  
+  if (!response) {
+    throw new Error('No response received from API');
   }
-  throw new Error('Max retries reached');
+
+  // Handle rate limiting
+  if (response.status === 429) {
+    throw new Error('RATE_LIMIT_EXCEEDED');
+  }
+
+  // Handle other error status codes
+  if (response.status !== 200) {
+    const errorText = await response.text();
+    console.error('API Error:', {
+      status: response.status,
+      text: errorText
+    });
+    throw new Error(`API_ERROR_${response.status}`);
+  }
+
+  const data = await response.json();
+  return data;
 }
 
 module.exports = async (req, res) => {
@@ -63,7 +63,7 @@ module.exports = async (req, res) => {
     const results = [];
     const errors = [];
     
-    // Fetch data for each token with delay between requests
+    // Fetch data for each token with significant delay between requests
     for (const token of TOP_TOKENS) {
       try {
         const url = new URL(API_URL);
@@ -72,52 +72,12 @@ module.exports = async (req, res) => {
         
         console.log('Fetching from URL:', url.toString());
         
-        const response = await fetchWithRetry(url.toString(), {
+        const data = await fetchTokenData(url.toString(), {
           headers: {
             'x-api-key': process.env.TAPTOOLS_API_KEY,
             'Accept': 'application/json'
           }
         });
-
-        // Safely check response properties
-        if (!response) {
-          throw new Error('No response received');
-        }
-
-        const status = response.status || 500;
-        if (status !== 200) {
-          let errorText;
-          try {
-            errorText = await response.text();
-          } catch (e) {
-            errorText = 'Could not read error response';
-          }
-          
-          console.error('API Response Error:', {
-            status,
-            statusText: response.statusText || 'No status text',
-            body: errorText
-          });
-
-          switch (status) {
-            case 401:
-              throw new Error('INVALID_API_KEY');
-            case 404:
-              throw new Error('TOKEN_NOT_FOUND');
-            case 429:
-              throw new Error('RATE_LIMIT_EXCEEDED');
-            default:
-              throw new Error(`API_ERROR_${status}`);
-          }
-        }
-
-        let data;
-        try {
-          data = await response.json();
-        } catch (e) {
-          console.error('Failed to parse JSON response:', e);
-          throw new Error('INVALID_JSON_RESPONSE');
-        }
         
         if (!data || typeof data.changes !== 'object') {
           console.error('Invalid data format for token:', token.name, data);
@@ -131,11 +91,17 @@ module.exports = async (req, res) => {
           changes: data.changes
         });
 
-        // Add delay between requests to avoid rate limits
-        await delay(500);
+        // Add significant delay between requests to avoid rate limits
+        await delay(2000); // 2 seconds between requests
         
       } catch (error) {
         console.error('Error fetching token data:', token.name, error);
+        
+        if (error.message === 'RATE_LIMIT_EXCEEDED') {
+          // If rate limited, add a longer delay before continuing
+          await delay(5000); // 5 seconds pause on rate limit
+        }
+        
         errors.push({ token: token.name, error: error.message });
       }
     }
@@ -165,7 +131,6 @@ function getErrorMessage(errorCode) {
     'RATE_LIMIT_EXCEEDED': 'Rate limit exceeded, please try again later',
     'API_ERROR': 'Error fetching data from API',
     'INVALID_DATA_FORMAT': 'Invalid data format received',
-    'INVALID_JSON_RESPONSE': 'Invalid JSON response from API',
     'NO_DATA': 'No data available'
   };
   return messages[errorCode] || 'An unexpected error occurred';
@@ -179,7 +144,6 @@ function getStatusCode(errorCode) {
     'RATE_LIMIT_EXCEEDED': 429,
     'API_ERROR': 500,
     'INVALID_DATA_FORMAT': 500,
-    'INVALID_JSON_RESPONSE': 500,
     'NO_DATA': 404
   };
   return codes[errorCode] || 500;

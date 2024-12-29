@@ -48,62 +48,56 @@ function App() {
   }, [loading]);
 
   const fetchData = useCallback(async () => {
-    let retries = 3;
-    while (retries > 0) {
-      try {
-        setLoading(true);
-        setError(null);
-        console.log('Fetching data from server...');
-        const response = await axios.get('/api/prices');
-        console.log('Received data:', response.data);
-        
-        if (response.data && Array.isArray(response.data.tokens)) {
-          if (response.data.tokens.length === 0) {
-            setError('No data available');
-          } else {
-            const validData = response.data.tokens.filter(token => 
-              token && token.changes && typeof token.changes[selectedTimeframe] === 'number'
-            );
-            if (validData.length > 0) {
-              setData(validData);
-              if (response.data.errors) {
-                setError({
-                  severity: 'warning',
-                  message: 'Some tokens failed to load',
-                  details: response.data.errors
-                });
-              }
-              break; // Success, exit retry loop
-            } else {
-              throw new Error('No valid token data received');
-            }
-          }
+    try {
+      setLoading(true);
+      setError(null);
+      console.log('Fetching data from server...');
+      const response = await axios.get('/api/prices');
+      console.log('Received data:', response.data);
+      
+      if (response.data && Array.isArray(response.data.tokens)) {
+        if (response.data.tokens.length === 0) {
+          setError('No data available');
         } else {
-          console.error('Invalid response format:', response.data);
-          throw new Error('Invalid data format received from server');
+          const validData = response.data.tokens.filter(token => 
+            token && token.changes && typeof token.changes[selectedTimeframe] === 'number'
+          );
+          if (validData.length > 0) {
+            setData(validData);
+            if (response.data.errors) {
+              setError({
+                severity: 'warning',
+                message: 'Some tokens failed to load',
+                details: response.data.errors
+              });
+            }
+          } else {
+            throw new Error('No valid token data received');
+          }
         }
-      } catch (err) {
-        console.error('Error fetching data:', err);
-        const errorMessage = err.response?.data?.message || err.message || 'Failed to fetch data';
-        
-        if (retries > 1 && (err.response?.status === 429 || err.message.includes('rate limit'))) {
-          console.log(`Retrying... ${retries - 1} attempts remaining`);
-          retries--;
-          await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2 seconds before retry
-          continue;
-        }
-        
+      } else {
+        console.error('Invalid response format:', response.data);
+        throw new Error('Invalid data format received from server');
+      }
+    } catch (err) {
+      console.error('Error fetching data:', err);
+      const errorMessage = err.response?.data?.message || err.message || 'Failed to fetch data';
+      
+      if (err.response?.status === 429) {
+        setError({
+          severity: 'warning',
+          message: 'Rate limit exceeded. Please wait a moment and try again.',
+          details: err.response?.data
+        });
+      } else {
         setError({
           severity: 'error',
           message: errorMessage,
           details: err.response?.data
         });
-        break;
-      } finally {
-        if (retries === 1) { // Only set loading false on last try or success
-          setLoading(false);
-        }
       }
+    } finally {
+      setLoading(false);
     }
   }, [selectedTimeframe]);
 
