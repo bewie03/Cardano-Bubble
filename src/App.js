@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { ThemeProvider, createTheme, CssBaseline, Box, CircularProgress, Alert, Fade } from '@mui/material';
 import BubbleMap from './components/BubbleMap';
@@ -29,26 +29,25 @@ function App() {
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [selectedTimeframe, setSelectedTimeframe] = useState('24h'); 
+  const [selectedTimeframe, setSelectedTimeframe] = useState('24h');
   const [loadingMessage, setLoadingMessage] = useState(loadingMessages[0]);
-  const [loadingMessageIndex, setLoadingMessageIndex] = useState(0);
 
   // Cycle through loading messages
   useEffect(() => {
     if (!loading) return;
 
     const interval = setInterval(() => {
-      setLoadingMessageIndex((prev) => {
-        const nextIndex = (prev + 1) % loadingMessages.length;
-        setLoadingMessage(loadingMessages[nextIndex]);
-        return nextIndex;
+      setLoadingMessage(prev => {
+        const currentIndex = loadingMessages.indexOf(prev);
+        const nextIndex = (currentIndex + 1) % loadingMessages.length;
+        return loadingMessages[nextIndex];
       });
     }, 2000);
 
     return () => clearInterval(interval);
   }, [loading]);
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -65,7 +64,6 @@ function App() {
           );
           if (validData.length > 0) {
             setData(validData);
-            // If there were any errors but some tokens loaded, show as warning
             if (response.data.errors) {
               setError({
                 severity: 'warning',
@@ -92,12 +90,12 @@ function App() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [selectedTimeframe]);
 
   // Fetch data initially and when timeframe changes
   useEffect(() => {
     fetchData();
-  }, [selectedTimeframe]);
+  }, [fetchData]);
 
   const renderError = () => {
     if (!error) return null;
