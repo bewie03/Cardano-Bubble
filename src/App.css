@@ -1,0 +1,94 @@
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.App {
+  text-align: center;
+  min-height: 100vh;
+  background: linear-gradient(135deg, #1a1d23 0%, #121417 100%);
+  color: white;
+}
+
+.App-header {
+  padding: 20px;
+}
+
+.timeframe-filter {
+  margin: 20px 0;
+}
+
+.timeframe-button {
+  background-color: #444;
+  color: white;
+  border: none;
+  padding: 10px 20px;
+  margin: 0 5px;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: background-color 0.3s;
+}
+
+.timeframe-button:hover {
+  background-color: #666;
+}
+
+.timeframe-button.active {
+  background-color: #61dafb;
+}
+
+.main-content {
+  padding: 0 20px 40px;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+/* Tooltip Styles */
+#bubble-tooltip {
+  background-color: rgba(0, 0, 0, 0.9) !important;
+  border-radius: 8px !important;
+  padding: 12px !important;
+  font-size: 14px !important;
+  line-height: 1.4 !important;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1) !important;
+  white-space: pre-line !important;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .main-content {
+    padding: 0 10px 20px;
+  }
+}
+
+/* Animations */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.fade-in {
+  animation: fadeIn 0.5s ease-out forwards;
+}
+
+svg {
+  background-color: #1a1d23;
+  border-radius: 10px;
+  margin: 0 auto;
+}
+
+.bubble text {
+  fill: white;
+  font-family: Arial, sans-serif;
+  pointer-events: none;
+}
