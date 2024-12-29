@@ -1,4 +1,4 @@
-const fetch = require('node-fetch');
+const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
 
 const API_URL = 'https://openapi.taptools.io/api/v1/token/prices/chg';
 const TIMEFRAMES = '1h,4h,24h,7d,30d';
