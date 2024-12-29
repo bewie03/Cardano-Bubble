@@ -2,6 +2,14 @@ const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch
 
 const API_URL = 'https://openapi.taptools.io/api/v1/token/prices/chg';
 const TIMEFRAMES = '1h,4h,24h,7d,30d';
+const CACHE_DURATION = 2 * 60 * 60 * 1000; // 2 hours in milliseconds
+
+// Cache object to store results
+let cache = {
+  data: null,
+  timestamp: null,
+  isUpdating: false // Flag to prevent concurrent updates
+};
 
 // List of tokens to fetch with correct policy ID + hex name format
 const TOP_TOKENS = [
@@ -49,21 +57,27 @@ async function fetchTokenData(url, options) {
   return data;
 }
 
-module.exports = async (req, res) => {
-  // Set CORS headers
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET');
-  
+// Function to check if cache is valid
+function isCacheValid() {
+  return cache.data && cache.timestamp && (Date.now() - cache.timestamp < CACHE_DURATION);
+}
+
+// Function to update cache in background
+async function updateCacheInBackground() {
+  // Prevent concurrent updates
+  if (cache.isUpdating) {
+    console.log('Cache update already in progress');
+    return;
+  }
+
   try {
-    // Validate API key
-    if (!process.env.TAPTOOLS_API_KEY) {
-      throw new Error('API_KEY_MISSING');
-    }
+    cache.isUpdating = true;
+    console.log('Starting background cache update');
 
     const results = [];
     const errors = [];
     
-    // Fetch data for each token with significant delay between requests
+    // Fetch data for each token with delay between requests
     for (const token of TOP_TOKENS) {
       try {
         const url = new URL(API_URL);
@@ -91,29 +105,76 @@ module.exports = async (req, res) => {
           changes: data.changes
         });
 
-        // Add shorter delay between requests to avoid rate limits
-        await delay(1000); // 1 second between requests
+        // Add delay between requests to avoid rate limits
+        if (TOP_TOKENS.indexOf(token) < TOP_TOKENS.length - 1) {
+          await delay(1000);
+        }
         
       } catch (error) {
         console.error('Error fetching token data:', token.name, error);
         
         if (error.message === 'RATE_LIMIT_EXCEEDED') {
-          // If rate limited, add a shorter delay before continuing
-          await delay(2000); // 2 seconds pause on rate limit
+          await delay(2000);
         }
         
         errors.push({ token: token.name, error: error.message });
       }
     }
 
-    if (results.length === 0) {
-      const statusCode = getStatusCode(errors[0]?.error || 'NO_DATA');
-      const message = getErrorMessage(errors[0]?.error || 'NO_DATA');
-      res.status(statusCode).json({ message, errors });
-      return;
+    // Only update cache if we got some results
+    if (results.length > 0) {
+      cache = {
+        data: {
+          tokens: results,
+          errors: errors.length > 0 ? errors : undefined,
+          lastUpdated: new Date().toISOString()
+        },
+        timestamp: Date.now(),
+        isUpdating: false
+      };
+      console.log('Cache updated successfully');
+    } else {
+      console.error('Cache update failed - no valid results');
+      cache.isUpdating = false;
+    }
+  } catch (error) {
+    console.error('Cache update failed:', error);
+    cache.isUpdating = false;
+  }
+}
+
+module.exports = async (req, res) => {
+  // Set CORS headers
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET');
+  
+  try {
+    // Validate API key
+    if (!process.env.TAPTOOLS_API_KEY) {
+      throw new Error('API_KEY_MISSING');
     }
 
-    res.json({ tokens: results, errors: errors.length > 0 ? errors : undefined });
+    // If cache is expired, trigger background update but still return old cache
+    if (!isCacheValid() && !cache.isUpdating) {
+      console.log('Cache expired, triggering background update');
+      updateCacheInBackground().catch(console.error);
+    }
+
+    // Always return cache if it exists, even if expired
+    if (cache.data) {
+      console.log('Returning cached data from:', new Date(cache.timestamp).toISOString());
+      return res.json(cache.data);
+    }
+
+    // If no cache exists yet, wait for initial fetch
+    console.log('No cache exists, waiting for initial fetch');
+    await updateCacheInBackground();
+
+    if (!cache.data) {
+      throw new Error('Failed to fetch initial data');
+    }
+
+    res.json(cache.data);
     
   } catch (error) {
     console.error('API Error:', error);
