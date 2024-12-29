@@ -19,6 +19,29 @@ const TOP_TOKENS = [
   }
 ];
 
+// Helper function to add delay between requests
+const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+// Helper function to fetch data with retries
+async function fetchWithRetry(url, options, retries = 3, delayMs = 1000) {
+  for (let i = 0; i < retries; i++) {
+    try {
+      const response = await fetch(url, options);
+      
+      if (response.status === 429) { // Rate limit exceeded
+        console.log(`Rate limit hit, attempt ${i + 1}/${retries}, waiting ${delayMs}ms`);
+        await delay(delayMs);
+        continue;
+      }
+      
+      return response;
+    } catch (error) {
+      if (i === retries - 1) throw error;
+      await delay(delayMs);
+    }
+  }
+}
+
 module.exports = async (req, res) => {
   // Set CORS headers
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -33,7 +56,7 @@ module.exports = async (req, res) => {
     const results = [];
     const errors = [];
     
-    // Fetch data for each token
+    // Fetch data for each token with delay between requests
     for (const token of TOP_TOKENS) {
       try {
         const url = new URL(API_URL);
@@ -42,7 +65,7 @@ module.exports = async (req, res) => {
         
         console.log('Fetching from URL:', url.toString());
         
-        const response = await fetch(url.toString(), {
+        const response = await fetchWithRetry(url.toString(), {
           headers: {
             'x-api-key': process.env.TAPTOOLS_API_KEY,
             'Accept': 'application/json'
@@ -65,59 +88,47 @@ module.exports = async (req, res) => {
             case 429:
               throw new Error('RATE_LIMIT_EXCEEDED');
             default:
-              throw new Error(`API_ERROR_${response.status}`);
+              throw new Error('API_ERROR');
           }
         }
 
         const data = await response.json();
-        console.log('Raw API Response:', data);
-
-        if (!data || typeof data !== 'object') {
-          throw new Error('INVALID_RESPONSE_FORMAT');
+        
+        if (!data || typeof data.changes !== 'object') {
+          console.error('Invalid data format for token:', token.name, data);
+          errors.push({ token: token.name, error: 'INVALID_DATA_FORMAT' });
+          continue;
         }
 
-        // Keep the timeframes as they come from the API
-        const changes = {
-          '1h': parseFloat(data['1h']) || 0,
-          '4h': parseFloat(data['4h']) || 0,
-          '24h': parseFloat(data['24h']) || 0,
-          '7d': parseFloat(data['7d']) || 0,
-          '30d': parseFloat(data['30d']) || 0
-        };
-
         results.push({
-          id: token.unit,
           name: token.name,
-          changes
+          unit: token.unit,
+          changes: data.changes
         });
 
+        // Add delay between requests to avoid rate limits
+        await delay(500);
+        
       } catch (error) {
-        console.error(`Error fetching ${token.name}:`, error);
-        errors.push({
-          token: token.name,
-          error: error.message
-        });
+        console.error('Error fetching token data:', token.name, error);
+        errors.push({ token: token.name, error: error.message });
       }
     }
 
-    // Send response with any successfully fetched tokens
-    const response = {
-      tokens: results
-    };
-
-    if (errors.length > 0) {
-      response.errors = errors;
+    if (results.length === 0) {
+      const statusCode = getStatusCode(errors[0]?.error || 'NO_DATA');
+      const message = getErrorMessage(errors[0]?.error || 'NO_DATA');
+      res.status(statusCode).json({ message, errors });
+      return;
     }
 
-    res.status(200).json(response);
-
+    res.json({ tokens: results, errors: errors.length > 0 ? errors : undefined });
+    
   } catch (error) {
-    console.error('Server Error:', error);
-    const errorCode = error.message || 'UNKNOWN_ERROR';
-    res.status(getStatusCode(errorCode)).json({
-      error: errorCode,
-      message: getErrorMessage(errorCode)
-    });
+    console.error('API Error:', error);
+    const statusCode = getStatusCode(error.message);
+    const message = getErrorMessage(error.message);
+    res.status(statusCode).json({ message, error: error.message });
   }
 };
 
@@ -126,21 +137,23 @@ function getErrorMessage(errorCode) {
     'API_KEY_MISSING': 'API key is required but not provided',
     'INVALID_API_KEY': 'Invalid API key',
     'TOKEN_NOT_FOUND': 'Token not found',
-    'RATE_LIMIT_EXCEEDED': 'Rate limit exceeded',
-    'INVALID_RESPONSE_FORMAT': 'Invalid response format from API',
-    'UNKNOWN_ERROR': 'An unknown error occurred'
+    'RATE_LIMIT_EXCEEDED': 'Rate limit exceeded, please try again later',
+    'API_ERROR': 'Error fetching data from API',
+    'INVALID_DATA_FORMAT': 'Invalid data format received',
+    'NO_DATA': 'No data available'
   };
-  return messages[errorCode] || `An error occurred: ${errorCode}`;
+  return messages[errorCode] || 'An unexpected error occurred';
 }
 
 function getStatusCode(errorCode) {
   const codes = {
-    'API_KEY_MISSING': 401,
+    'API_KEY_MISSING': 400,
     'INVALID_API_KEY': 401,
     'TOKEN_NOT_FOUND': 404,
     'RATE_LIMIT_EXCEEDED': 429,
-    'INVALID_RESPONSE_FORMAT': 502,
-    'UNKNOWN_ERROR': 500
+    'API_ERROR': 500,
+    'INVALID_DATA_FORMAT': 500,
+    'NO_DATA': 404
   };
   return codes[errorCode] || 500;
 }
