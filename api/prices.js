@@ -28,6 +28,11 @@ async function fetchWithRetry(url, options, retries = 3, delayMs = 1000) {
     try {
       const response = await fetch(url, options);
       
+      // Check if response exists before accessing properties
+      if (!response) {
+        throw new Error('No response received from API');
+      }
+      
       if (response.status === 429) { // Rate limit exceeded
         console.log(`Rate limit hit, attempt ${i + 1}/${retries}, waiting ${delayMs}ms`);
         await delay(delayMs);
@@ -36,10 +41,12 @@ async function fetchWithRetry(url, options, retries = 3, delayMs = 1000) {
       
       return response;
     } catch (error) {
+      console.error(`Attempt ${i + 1} failed:`, error);
       if (i === retries - 1) throw error;
       await delay(delayMs);
     }
   }
+  throw new Error('Max retries reached');
 }
 
 module.exports = async (req, res) => {
@@ -72,15 +79,27 @@ module.exports = async (req, res) => {
           }
         });
 
-        if (!response.ok) {
-          const errorText = await response.text();
+        // Safely check response properties
+        if (!response) {
+          throw new Error('No response received');
+        }
+
+        const status = response.status || 500;
+        if (status !== 200) {
+          let errorText;
+          try {
+            errorText = await response.text();
+          } catch (e) {
+            errorText = 'Could not read error response';
+          }
+          
           console.error('API Response Error:', {
-            status: response.status,
-            statusText: response.statusText,
+            status,
+            statusText: response.statusText || 'No status text',
             body: errorText
           });
 
-          switch (response.status) {
+          switch (status) {
             case 401:
               throw new Error('INVALID_API_KEY');
             case 404:
@@ -88,11 +107,17 @@ module.exports = async (req, res) => {
             case 429:
               throw new Error('RATE_LIMIT_EXCEEDED');
             default:
-              throw new Error('API_ERROR');
+              throw new Error(`API_ERROR_${status}`);
           }
         }
 
-        const data = await response.json();
+        let data;
+        try {
+          data = await response.json();
+        } catch (e) {
+          console.error('Failed to parse JSON response:', e);
+          throw new Error('INVALID_JSON_RESPONSE');
+        }
         
         if (!data || typeof data.changes !== 'object') {
           console.error('Invalid data format for token:', token.name, data);
@@ -140,6 +165,7 @@ function getErrorMessage(errorCode) {
     'RATE_LIMIT_EXCEEDED': 'Rate limit exceeded, please try again later',
     'API_ERROR': 'Error fetching data from API',
     'INVALID_DATA_FORMAT': 'Invalid data format received',
+    'INVALID_JSON_RESPONSE': 'Invalid JSON response from API',
     'NO_DATA': 'No data available'
   };
   return messages[errorCode] || 'An unexpected error occurred';
@@ -153,6 +179,7 @@ function getStatusCode(errorCode) {
     'RATE_LIMIT_EXCEEDED': 429,
     'API_ERROR': 500,
     'INVALID_DATA_FORMAT': 500,
+    'INVALID_JSON_RESPONSE': 500,
     'NO_DATA': 404
   };
   return codes[errorCode] || 500;
